@@ -41,21 +41,23 @@ public class WebService{
 			get("/health_check", ctx -> ctx.result("alive"));
 			get("/commands/get", this::getCommands);
 			post("/login", this::login);
-			path("/user", () -> {
+			path("/*", () -> {
 				before("/*", this::checkDiscordLogin);
-				get("/me", this::getUserInfo);
-			});
-			path("/guilds", () -> {
-				before("/*", this::checkDiscordLogin);
-				get("/all", this::getAllGuilds);
-				path("/:guildId", () -> {
-					before("/*", this::checkGuildPerms);
-					get("/roles/get", this::getRoles);
-					get("/channels/get", this::getChannels);
-					get("/emotes/get", this::getEmotes);
-					path("/settings", () -> {
-						get("/get", this::getGuildSettings);
-						post("/set", this::setGuildSettings);
+				get("/user/me", this::getUserInfo);
+				path("/musicplayer", () -> {
+					get("/get", this::getMusicPlayer);
+				});
+				path("/guilds", () -> {
+					get("/all", this::getAllGuilds);
+					path("/:guildId", () -> {
+						before("/*", this::checkGuildPerms);
+						get("/roles/get", this::getRoles);
+						get("/channels/get", this::getChannels);
+						get("/emotes/get", this::getEmotes);
+						path("/settings", () -> {
+							get("/get", this::getGuildSettings);
+							post("/set", this::setGuildSettings);
+						});
 					});
 				});
 			});
@@ -125,6 +127,28 @@ public class WebService{
 			}
 		}
 		ok(ctx, DataObject.empty().put("name", user.getName()).put("id", user.getId()).put("icon", user.getEffectiveAvatarUrl()).put("guilds", data));
+	}
+
+	private void getMusicPlayer(Context ctx){
+		var auth = ctx.header("Authorization");
+		if(auth == null){
+			error(ctx, 401, "Please login");
+			return;
+		}
+		var userId = Database.getSession(auth);
+		if(userId == null){
+			error(ctx, 404, "Session not found");
+			return;
+		}
+		var user = KittyBot.getJda().getUserById(userId);
+		if(user == null){
+			error(ctx, 404, "Session not found");
+			return;
+		}
+		user.getMutualGuilds().stream().anyMatch(guild -> {
+			var member = guild.getMemberById(userId);
+			if(member != null && member.getVoiceState() != null && member.getVoiceState().inVoiceChannel())
+		});
 	}
 
 	private void getAllGuilds(Context ctx){
