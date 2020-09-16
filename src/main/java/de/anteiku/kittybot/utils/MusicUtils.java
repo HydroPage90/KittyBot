@@ -1,11 +1,28 @@
 package de.anteiku.kittybot.utils;
 
+import com.sedmelluq.discord.lavaplayer.track.AudioTrack;
+import de.anteiku.kittybot.KittyBot;
 import de.anteiku.kittybot.objects.cache.MusicPlayerCache;
 import de.anteiku.kittybot.objects.command.CommandContext;
+import net.dv8tion.jda.api.utils.data.DataObject;
 
 import static de.anteiku.kittybot.objects.command.ACommand.sendError;
 
 public class MusicUtils{
+
+	public static DataObject trackToJSON(AudioTrack track){
+		var info = track.getInfo();
+		return DataObject.empty()
+			.put("id", info.identifier)
+			.put("title", info.title)
+			.put("url", info.uri)
+			.put("author", info.author)
+			.put("requestor_id", track.getUserData())
+			.put("requestor_name", KittyBot.getJda().getUserById((String) track.getUserData()).getAsTag())
+			.put("source_name", track.getSourceManager().getSourceName())
+			.put("duration", track.getDuration())
+			.put("position", track.getPosition());
+	}
 
 	public static void seekTrack(final CommandContext ctx){
 		final var voiceState = ctx.getMember().getVoiceState();

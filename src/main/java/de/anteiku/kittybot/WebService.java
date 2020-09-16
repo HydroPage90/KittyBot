@@ -6,9 +6,12 @@ import com.jagrosh.jdautilities.oauth2.exceptions.InvalidStateException;
 import de.anteiku.kittybot.database.Database;
 import de.anteiku.kittybot.objects.Config;
 import de.anteiku.kittybot.objects.cache.GuildSettingsCache;
+import de.anteiku.kittybot.objects.cache.MusicPlayerCache;
 import de.anteiku.kittybot.objects.cache.SelfAssignableRoleCache;
 import de.anteiku.kittybot.objects.command.Category;
 import de.anteiku.kittybot.objects.command.CommandManager;
+import de.anteiku.kittybot.utils.MusicUtils;
+import de.anteiku.kittybot.utils.Utils;
 import io.javalin.Javalin;
 import io.javalin.http.Context;
 import net.dv8tion.jda.api.Permission;
@@ -19,6 +22,8 @@ import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
 import java.util.HashMap;
+import java.util.Map;
+import java.util.stream.Collectors;
 
 import static io.javalin.apibuilder.ApiBuilder.*;
 
@@ -31,33 +36,35 @@ public class WebService{
 
 	public WebService(int port){
 		oAuthClient = new OAuth2Client.Builder()
-				.setClientId(Long.parseLong(Config.BOT_ID))
-				.setClientSecret(Config.BOT_SECRET)
-				.setOkHttpClient(KittyBot.getHttpClient())
-				.build();
+			              .setClientId(Long.parseLong(Config.BOT_ID))
+			              .setClientSecret(Config.BOT_SECRET)
+			              .setOkHttpClient(KittyBot.getHttpClient())
+			              .build();
 
 		Javalin.create(config -> config.enableCorsForOrigin(Config.ORIGIN_URL)).routes(() -> {
 			get("/discord_login", this::discordLogin);
 			get("/health_check", ctx -> ctx.result("alive"));
 			get("/commands/get", this::getCommands);
 			post("/login", this::login);
-			path("/*", () -> {
+			path("/user", () -> {
 				before("/*", this::checkDiscordLogin);
-				get("/user/me", this::getUserInfo);
-				path("/musicplayer", () -> {
-					get("/get", this::getMusicPlayer);
-				});
-				path("/guilds", () -> {
-					get("/all", this::getAllGuilds);
-					path("/:guildId", () -> {
-						before("/*", this::checkGuildPerms);
-						get("/roles/get", this::getRoles);
-						get("/channels/get", this::getChannels);
-						get("/emotes/get", this::getEmotes);
-						path("/settings", () -> {
-							get("/get", this::getGuildSettings);
-							post("/set", this::setGuildSettings);
-						});
+				get("/me", this::getUserInfo);
+			});
+			path("/musicplayer", () -> {
+				before("/*", this::checkDiscordLogin);
+				get("/get", this::getMusicPlayer);
+			});
+			path("/guilds", () -> {
+				get("/all", this::getAllGuilds);
+				path("/:guildId", () -> {
+					before("/*", this::checkGuildPerms);
+					get("/roles/get", this::getRoles);
+					get("/text_channels/get", this::getTextChannels);
+					get("/voice_channels/get", this::getVoiceChannels);
+					get("/emotes/get", this::getEmotes);
+					path("/settings", () -> {
+						get("/get", this::getGuildSettings);
+						post("/set", this::setGuildSettings);
 					});
 				});
 			});
@@ -66,7 +73,7 @@ public class WebService{
 
 	private void discordLogin(Context ctx){
 		var key = ctx.header("Authorization");
-		if(key == null || !Database.sessionExists(key)){
+		if(key == null||!Database.sessionExists(key)){
 			ctx.redirect(oAuthClient.generateAuthorizationURL(Config.REDIRECT_URL, scopes));
 			return;
 		}
@@ -98,7 +105,7 @@ public class WebService{
 			return;
 		}
 		var key = ctx.header("Authorization");
-		if(key == null || !Database.sessionExists(key)){
+		if(key == null||!Database.sessionExists(key)){
 			error(ctx, 401, "Please login with discord to continue");
 		}
 	}
@@ -122,7 +129,7 @@ public class WebService{
 		var data = DataArray.empty();
 		for(var guild : KittyBot.getJda().getMutualGuilds(user)){
 			var u = guild.getMember(user);
-			if(u != null && u.hasPermission(Permission.ADMINISTRATOR)){
+			if(u != null&&u.hasPermission(Permission.ADMINISTRATOR)){
 				data.add(DataObject.empty().put("id", guild.getId()).put("name", guild.getName()).put("icon", guild.getIconUrl()));
 			}
 		}
@@ -145,10 +152,30 @@ public class WebService{
 			error(ctx, 404, "Session not found");
 			return;
 		}
-		user.getMutualGuilds().stream().anyMatch(guild -> {
-			var member = guild.getMemberById(userId);
-			if(member != null && member.getVoiceState() != null && member.getVoiceState().inVoiceChannel())
-		});
+
+		var guild = user.getMutualGuilds().stream().filter(g -> Utils.checkForMusicPlayer(g, userId)).findFirst().orElse(null);
+		if(guild == null){
+			ok(ctx, DataObject.empty().put("info", "no active music players found"));
+			return;
+		}
+		var musicPlayer = MusicPlayerCache.getMusicPlayer(guild);
+		var history = DataArray.empty().addAll(musicPlayer.getHistory().stream().map(MusicUtils::trackToJSON).collect(Collectors.toList()));
+		var queue = DataArray.empty().addAll(musicPlayer.getQueue().stream().map(MusicUtils::trackToJSON).collect(Collectors.toList()));
+		var player = musicPlayer.getPlayer();
+		var voiceChannels = DataArray.empty();
+		for(var channel : guild.getVoiceChannels()){
+			voiceChannels.add(DataObject.empty().put("name", channel.getName()).put("id", channel.getId()));
+		}
+		ok(ctx, DataObject.empty()
+			.put("guild_id", player.getLink().getGuildId())
+			.put("connected_channel_id", player.getLink().getChannel())
+			.put("voice_channels", voiceChannels)
+			.put("history", history)
+			.put("queue", queue)
+			.put("playing_track", MusicUtils.trackToJSON(player.getPlayingTrack()))
+			.put("playing", !player.isPaused())
+			.put("volume", player.getVolume())
+		);
 	}
 
 	private void getAllGuilds(Context ctx){
@@ -169,7 +196,8 @@ public class WebService{
 		var data = DataArray.empty();
 		for(var guild : KittyBot.getJda().getGuildCache()){
 			var owner = guild.getOwner();
-			var obj = DataObject.empty().put("id", guild.getId()).put("name", guild.getName()).put("icon", guild.getIconUrl()).put("count", guild.getMemberCount());
+			var obj = DataObject.empty().put("id", guild.getId()).put("name", guild.getName()).put("icon", guild.getIconUrl()).put(
+				"count", guild.getMemberCount());
 			if(owner != null){
 				obj.put("owner", owner.getUser().getAsTag());
 			}
@@ -239,7 +267,7 @@ public class WebService{
 		ok(ctx, DataObject.empty().put("roles", data));
 	}
 
-	private void getChannels(Context ctx){
+	private void getTextChannels(Context ctx){
 		var guild = KittyBot.getJda().getGuildById(ctx.pathParam(":guildId"));
 		if(guild == null){
 			error(ctx, 404, "guild not found");
@@ -249,7 +277,20 @@ public class WebService{
 		for(var channel : guild.getTextChannels()){
 			data.add(DataObject.empty().put("name", channel.getName()).put("id", channel.getId()));
 		}
-		ok(ctx, DataObject.empty().put("channels", data));
+		ok(ctx, DataObject.empty().put("text_channels", data));
+	}
+
+	private void getVoiceChannels(Context ctx){
+		var guild = KittyBot.getJda().getGuildById(ctx.pathParam(":guildId"));
+		if(guild == null){
+			error(ctx, 404, "guild not found");
+			return;
+		}
+		var data = DataArray.empty();
+		for(var channel : guild.getVoiceChannels()){
+			data.add(DataObject.empty().put("name", channel.getName()).put("id", channel.getId()));
+		}
+		ok(ctx, DataObject.empty().put("voice_channels", data));
 	}
 
 	private void getEmotes(Context ctx){
@@ -268,7 +309,7 @@ public class WebService{
 	private void getGuildSettings(Context ctx){
 		var guildId = ctx.pathParam(":guildId");
 		var roles = SelfAssignableRoleCache.getSelfAssignableRoles(guildId);
-		if(roles == null || KittyBot.getJda().getGuildById(guildId) == null){
+		if(roles == null||KittyBot.getJda().getGuildById(guildId) == null){
 			error(ctx, 404, "guild not found");
 			return;
 		}
@@ -278,17 +319,17 @@ public class WebService{
 		}
 		var settings = GuildSettingsCache.getGuildSettings(guildId);
 		ok(ctx, DataObject.empty()
-				.put("prefix", settings.getCommandPrefix())
-				.put("join_messages_enabled", settings.areJoinMessagesEnabled())
-				.put("join_message", settings.getJoinMessage())
-				.put("leave_messages_enabled", settings.areLeaveMessagesEnabled())
-				.put("leave_message", settings.getLeaveMessage())
-				.put("boost_messages_enabled", settings.areBoostMessagesEnabled())
-				.put("boost_message", settings.getBoostMessage())
-				.put("announcement_channel_id", settings.getAnnouncementChannelId())
-				.put("nsfw_enabled", settings.isNSFWEnabled())
-				.put("dj_role_id", settings.getDJRoleId())
-				.put("self_assignable_roles", data));
+		                  .put("prefix", settings.getCommandPrefix())
+		                  .put("join_messages_enabled", settings.areJoinMessagesEnabled())
+		                  .put("join_message", settings.getJoinMessage())
+		                  .put("leave_messages_enabled", settings.areLeaveMessagesEnabled())
+		                  .put("leave_message", settings.getLeaveMessage())
+		                  .put("boost_messages_enabled", settings.areBoostMessagesEnabled())
+		                  .put("boost_message", settings.getBoostMessage())
+		                  .put("announcement_channel_id", settings.getAnnouncementChannelId())
+		                  .put("nsfw_enabled", settings.isNSFWEnabled())
+		                  .put("dj_role_id", settings.getDJRoleId())
+		                  .put("self_assignable_roles", data));
 	}
 
 	private void setGuildSettings(Context ctx){

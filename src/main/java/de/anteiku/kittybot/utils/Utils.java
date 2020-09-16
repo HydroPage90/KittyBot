@@ -5,8 +5,7 @@ import de.anteiku.kittybot.objects.MusicPlayer;
 import de.anteiku.kittybot.objects.cache.GuildSettingsCache;
 import de.anteiku.kittybot.objects.command.ACommand;
 import de.anteiku.kittybot.objects.command.CommandContext;
-import net.dv8tion.jda.api.entities.Emote;
-import net.dv8tion.jda.api.entities.Role;
+import net.dv8tion.jda.api.entities.*;
 
 import java.time.Duration;
 import java.util.*;
@@ -139,6 +138,17 @@ public class Utils{
 		message.append("\nTo add more songs to the queue, use `").append(prefix).append("play`").append(" or `").append(prefix).append("queue`.");
 		message.append("\nPro tip: To remove songs from the queue, you can use `").append(prefix).append("remove <position>").append("`."); // TODO maybe add a "tip" about being able to skip to a track with given position
 		buildResponse(ctx, message);
+	}
+
+	public static boolean checkForMusicPlayer(Guild guild, String userId){
+		var member = guild.getMemberById(userId);
+		var selfMember = guild.getSelfMember();
+		return checkVoiceState(member) && checkVoiceState(selfMember) &&
+			       member.getVoiceState().getChannel().equals(selfMember.getVoiceState().getChannel());
+	}
+
+	public static boolean checkVoiceState(Member member){
+		return member != null && member.getVoiceState() != null && member.getVoiceState().inVoiceChannel() && member.getVoiceState().getChannel() != null;
 	}
 
 	public static String formatTrackTitle(AudioTrack track){
