@@ -33,4 +33,8 @@ public class MusicPlayerCache{
 		return MUSIC_PLAYERS.get(guild.getId());
 	}
 
+	public static MusicPlayer getMusicPlayer(String guildId){
+		return MUSIC_PLAYERS.get(guildId);
+	}
+
 }

@@ -24,8 +24,13 @@ public class ReactiveMessageCache{
 	}
 
 	public static void addReactiveMessage(CommandContext ctx, Message message, ACommand cmd, String allowed){
-		REACTIVE_MESSAGES.put(message.getId(), new ReactiveMessage(ctx.getChannel().getId(), ctx.getMessage().getId(), ctx.getUser().getId(), message.getId(), cmd.command, allowed));
-		Database.addReactiveMessage(ctx.getGuild().getId(), ctx.getUser().getId(), ctx.getChannel().getId(), message.getId(), ctx.getMessage().getId(), cmd.command, allowed);
+		addReactiveMessage(ctx, message, cmd.command, allowed);
+	}
+
+	public static void addReactiveMessage(CommandContext ctx, Message message, String cmd, String allowed){
+		var reactiveMessage = new ReactiveMessage(ctx.getChannel().getId(), ctx.getMessage().getId(), ctx.getUser().getId(), message.getId(), cmd, allowed);
+		REACTIVE_MESSAGES.put(message.getId(), reactiveMessage);
+		Database.addReactiveMessage(ctx.getGuild().getId(), reactiveMessage);
 	}
 
 	public static ReactiveMessage getReactiveMessage(Guild guild, String messageId){

@@ -114,7 +114,7 @@ public class Utils{
 				sendError(ctx, "To use this command you need to be connected to a voice channel");
 				return;
 			}
-			player.loadItem(command, ctx);
+			player.loadItem(ctx, ctx.getArgs());
 			return;
 		}
 		var queue = player.getQueue();

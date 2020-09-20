@@ -44,7 +44,6 @@ public class MusicPlayer extends PlayerEventListenerAdapter{
 	private final Deque<AudioTrack> history;
 	private String messageId;
 	private String channelId;
-	private ACommand command;
 	private CommandContext ctx;
 
 	public MusicPlayer(LavalinkPlayer player){
@@ -61,10 +60,11 @@ public class MusicPlayer extends PlayerEventListenerAdapter{
 		return history;
 	}
 
-	public void loadItem(ACommand command, CommandContext ctx){
-		this.command = command;
-		this.ctx = ctx;
-		String argStr = String.join(" ", ctx.getArgs());
+	public void loadItem(CommandContext ctx, String ...args){
+		if(ctx != null){
+			this.ctx = ctx;
+		}
+		String argStr = String.join(" ", args);
 		var matcher = SPOTIFY_URL_PATTERN.matcher(argStr);
 		if(matcher.matches()){
 			SpotifyLoader.load(ctx, matcher);
@@ -193,6 +193,11 @@ public class MusicPlayer extends PlayerEventListenerAdapter{
 		return paused;
 	}
 
+	public void setPaused(boolean paused){
+		player.setPaused(paused);
+		updateMusicControlMessage();
+	}
+
 	public int changeVolume(int volumeStep){
 		var volume = player.getVolume();
 		if(volume > 0){
@@ -240,10 +245,10 @@ public class MusicPlayer extends PlayerEventListenerAdapter{
 		if(messageId != null){
 			ReactiveMessageCache.removeReactiveMessage(ctx.getGuild(), messageId);
 		}
-		sendMusicController(command, ctx);
+		sendMusicController(ctx);
 	}
 
-	public void sendMusicController(ACommand command, CommandContext ctx){
+	public void sendMusicController(CommandContext ctx){
 		var msg = ctx.getMessage();
 		msg.getChannel()
 				.sendMessage(buildMusicControlMessage()
@@ -252,7 +257,7 @@ public class MusicPlayer extends PlayerEventListenerAdapter{
 				.queue(message -> {
 					messageId = message.getId();
 					channelId = message.getChannel().getId();
-					ReactiveMessageCache.addReactiveMessage(ctx, message, command, "-1");
+					ReactiveMessageCache.addReactiveMessage(ctx, message, "play", "-1");
 					message.addReaction(Emojis.VOLUME_DOWN).queue();
 					message.addReaction(Emojis.VOLUME_UP).queue();
 					message.addReaction(Emojis.BACK).queue();

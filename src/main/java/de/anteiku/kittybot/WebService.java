@@ -53,6 +53,7 @@ public class WebService{
 			path("/musicplayer", () -> {
 				before("/*", this::checkDiscordLogin);
 				get("/get", this::getMusicPlayer);
+				post("/set", this::setMusicPlayer);
 			});
 			path("/guilds", () -> {
 				get("/all", this::getAllGuilds);
@@ -137,16 +138,7 @@ public class WebService{
 	}
 
 	private void getMusicPlayer(Context ctx){
-		var auth = ctx.header("Authorization");
-		if(auth == null){
-			error(ctx, 401, "Please login");
-			return;
-		}
-		var userId = Database.getSession(auth);
-		if(userId == null){
-			error(ctx, 404, "Session not found");
-			return;
-		}
+		var userId = getUserId(ctx);
 		var user = KittyBot.getJda().getUserById(userId);
 		if(user == null){
 			error(ctx, 404, "Session not found");
@@ -155,12 +147,12 @@ public class WebService{
 
 		var guild = user.getMutualGuilds().stream().filter(g -> Utils.checkForMusicPlayer(g, userId)).findFirst().orElse(null);
 		if(guild == null){
-			ok(ctx, DataObject.empty().put("info", "no active music players found"));
+			error(ctx, 404, "no active music players found");
 			return;
 		}
 		var musicPlayer = MusicPlayerCache.getMusicPlayer(guild);
-		var history = DataArray.empty().addAll(musicPlayer.getHistory().stream().map(MusicUtils::trackToJSON).collect(Collectors.toList()));
-		var queue = DataArray.empty().addAll(musicPlayer.getQueue().stream().map(MusicUtils::trackToJSON).collect(Collectors.toList()));
+		var history = DataArray.empty().addAll(musicPlayer.getHistory().stream().map(MusicUtils::trackToJSON).collect(Collectors.toSet()));
+		var queue = DataArray.empty().addAll(musicPlayer.getQueue().stream().map(MusicUtils::trackToJSON).collect(Collectors.toSet()));
 		var player = musicPlayer.getPlayer();
 		var voiceChannels = DataArray.empty();
 		for(var channel : guild.getVoiceChannels()){
@@ -178,17 +170,40 @@ public class WebService{
 		);
 	}
 
+	private void setMusicPlayer(Context ctx){
+		var userId = getUserId(ctx);
+		var body = DataObject.fromJson(ctx.body());
+		var guildId = body.getString("guild_id");
+		var musicPlayer = MusicPlayerCache.getMusicPlayer(guildId);
+		if(musicPlayer == null){
+			error(ctx, 404, "No music player found for this guild");
+			return;
+		}
+		var player = musicPlayer.getPlayer();
+		if(body.hasKey("paused")){
+			musicPlayer.setPaused(body.getBoolean("paused"));
+		}
+		if(body.hasKey("seek_to")){
+			musicPlayer.getPlayer().seekTo(body.getLong("seek_to"));
+		}
+		if(body.hasKey("next_track")){
+			musicPlayer.nextTrack();
+		}
+		if(body.hasKey("previous_track")){
+			musicPlayer.previousTrack();
+		}
+		if(body.hasKey("queue")){
+			/*var queue = body.getArray("queue");
+			for(var i = 0; i < queue.length(); i++){
+				var obj = queue.getObject(i).getString();
+				musicPlayer.loadItem(null, obj.)
+			}*/
+
+		}
+	}
+
 	private void getAllGuilds(Context ctx){
-		var auth = ctx.header("Authorization");
-		if(auth == null){
-			error(ctx, 401, "Please login");
-			return;
-		}
-		var userId = Database.getSession(auth);
-		if(userId == null){
-			error(ctx, 404, "Session not found");
-			return;
-		}
+		var userId = getUserId(ctx);
 		if(!Config.ADMIN_IDS.contains(userId)){
 			error(ctx, 403, "Only admins have access to this!");
 			return;
@@ -319,17 +334,18 @@ public class WebService{
 		}
 		var settings = GuildSettingsCache.getGuildSettings(guildId);
 		ok(ctx, DataObject.empty()
-		                  .put("prefix", settings.getCommandPrefix())
-		                  .put("join_messages_enabled", settings.areJoinMessagesEnabled())
-		                  .put("join_message", settings.getJoinMessage())
-		                  .put("leave_messages_enabled", settings.areLeaveMessagesEnabled())
-		                  .put("leave_message", settings.getLeaveMessage())
-		                  .put("boost_messages_enabled", settings.areBoostMessagesEnabled())
-		                  .put("boost_message", settings.getBoostMessage())
-		                  .put("announcement_channel_id", settings.getAnnouncementChannelId())
-		                  .put("nsfw_enabled", settings.isNSFWEnabled())
-		                  .put("dj_role_id", settings.getDJRoleId())
-		                  .put("self_assignable_roles", data));
+			.put("prefix", settings.getCommandPrefix())
+			.put("join_messages_enabled", settings.areJoinMessagesEnabled())
+			.put("join_message", settings.getJoinMessage())
+			.put("leave_messages_enabled", settings.areLeaveMessagesEnabled())
+			.put("leave_message", settings.getLeaveMessage())
+			.put("boost_messages_enabled", settings.areBoostMessagesEnabled())
+			.put("boost_message", settings.getBoostMessage())
+			.put("announcement_channel_id", settings.getAnnouncementChannelId())
+			.put("nsfw_enabled", settings.isNSFWEnabled())
+			.put("dj_role_id", settings.getDJRoleId())
+			.put("self_assignable_roles", data)
+		);
 	}
 
 	private void setGuildSettings(Context ctx){
@@ -379,6 +395,10 @@ public class WebService{
 			SelfAssignableRoleCache.setSelfAssignableRoles(guildId, roles);
 		}
 		ok(ctx);
+	}
+
+	private String getUserId(Context ctx) {
+		return Database.getSession(ctx.header("Authorization"));
 	}
 
 	private void error(Context ctx, int code, String error){

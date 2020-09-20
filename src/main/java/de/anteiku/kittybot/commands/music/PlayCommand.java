@@ -42,7 +42,7 @@ public class PlayCommand extends ACommand{
 			player.addListener(musicPlayer);
 			MusicPlayerCache.addMusicPlayer(ctx.getGuild(), musicPlayer);
 		}
-		musicPlayer.loadItem(this, ctx);
+		musicPlayer.loadItem(ctx, ctx.getArgs());
 	}
 
 	@Override

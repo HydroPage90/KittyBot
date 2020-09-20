@@ -395,16 +395,16 @@ public class Database{
 		return null;
 	}
 
-	public static boolean addReactiveMessage(String guildId, String userId, String channelId, String messageId, String commandId, String command, String allowed){
+	public static boolean addReactiveMessage(String guildId, ReactiveMessage message){
 		var query = "INSERT INTO reactive_messages (channel_id, message_id, command_id, user_id, guild_id, command, allowed) VALUES (?, ?, ?, ?, ?, ?, ?)";
 		try(var con = SQL.getConnection(); var stmt = con.prepareStatement(query)){
-			stmt.setString(1, channelId);
-			stmt.setString(2, messageId);
-			stmt.setString(3, commandId);
-			stmt.setString(4, userId);
+			stmt.setString(1, message.channelId);
+			stmt.setString(2, message.messageId);
+			stmt.setString(3, message.commandId);
+			stmt.setString(4, message.userId);
 			stmt.setString(5, guildId);
-			stmt.setString(6, command);
-			stmt.setString(7, allowed);
+			stmt.setString(6, message.command);
+			stmt.setString(7, message.allowed);
 			return SQL.execute(stmt);
 		}
 		catch(SQLException e){
